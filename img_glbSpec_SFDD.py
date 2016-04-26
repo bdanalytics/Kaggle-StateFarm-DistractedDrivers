@@ -21,15 +21,18 @@ glbRspClassDesc = {
     'c9': 'talking to passenger'
     }
 
-glbImgSz = 32 # Pixel width and height.
-glbImgPixelDepth = 255.0  # Number of levels per pixel.
-glbImgColor = False
+glbImg = {
+    'size'      :     32, # Pixel width and height.
+    'pxlDepth'  : 255.0,  # Number of levels per pixel.
+    'color'     : False
+    }
 
 glbObsShuffleSeed = 127
+glbTfVarSeed = 131
 
 glbPickleFile = {
-      'data' : 'data/img_D_SFDD_ImgSz_' + str(glbImgSz) + '.pickle',
-    'models' : 'data/img_M_SFDD_ImgSz_' + str(glbImgSz) + '.pickle'
+      'data' : 'data/img_D_SFDD_ImgSz_' + str(glbImg['size']) + '.pickle',
+    'models' : 'data/img_M_SFDD_ImgSz_' + str(glbImg['size']) + '.pickle'
     }
         
 print 'imported img_glbSpec_SFDD'
