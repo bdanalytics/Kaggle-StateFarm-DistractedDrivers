@@ -31,6 +31,7 @@ glbDataScrub = {
     'trnDups': [('img_70808.jpg', 'img_81828.jpg')]
     }
 
+global glbRspClass
 glbRspClass = ['c' + str(id) for id in xrange(10)]
 glbRspClassN = len(glbRspClass)
 glbRspClassDesc = {
@@ -65,4 +66,29 @@ glbPickleFile = {
     'models' : 'data/img_M_SFDD_ImgSz_' + str(glbImg['size']) + '.pickle'
     }
         
+def glbwriteSubmission(lclObsNewIdn, lclObsNewRspPredProba, fileName):
+    import pandas as pd
+
+    sbmObsNewDf = pd.DataFrame(lclObsNewRspPredProba)
+    sbmObsNewDf.columns = glbRspClass
+    sbmObsNewDf['img'] = lclObsNewIdn
+    sbmObsNewDf = (sbmObsNewDf
+                    .set_index(['img'], 
+                               drop = False)
+                    .sort_values('img')
+                    )
+    sbmObsNewDf = sbmObsNewDf[['img'] + glbRspClass]
+    print sbmObsNewDf.head()
+    print sbmObsNewDf.tail()
+    
+    print '\nexporting %d rows to %s...' % (sbmObsNewDf.shape[0], 
+                                         fileName)
+    sbmObsNewDf.to_csv(fileName, index = False)        
+    
+    return None
+    
+# glbObsFitIdn = glbObsFitFtr = glbObsFitRsp = None
+# glbObsVldIdn = glbObsVldFtr = glbObsVldRsp = None    
+# glbObsNewIdn = glbObsNewFtr = glbObsNewRsp = None
+    
 print 'imported img_glbSpec_SFDD_Img_Sz_64.py'
