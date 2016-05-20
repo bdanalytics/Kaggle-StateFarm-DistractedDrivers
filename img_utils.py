@@ -10,7 +10,8 @@ def mydspVerboseTrigger(ix):
           )
           
 # from nolearn.lasagne.visualize import plot_occlusion 
-def occlusion_heatmap(net, x, target, square_length=7):
+def occlusion_heatmap(net, x, target, square_length=7, 
+                        tfwXOcc = None, tfwYOccPby = None):
     """An occlusion test that checks an image for its critical parts.
     In this function, a square part of the image is occluded (i.e. set
     to 0) and then the net is tested for its propensity to predict the
@@ -46,7 +47,8 @@ def occlusion_heatmap(net, x, target, square_length=7):
       square with center (i, j).
     """
     
-    import numpy as np    
+    import numpy as np
+    import tensorflow as tf    
     
     if (x.ndim != 4) or x.shape[0] != 1:
         raise ValueError("This function requires the input data to be of "
@@ -56,7 +58,20 @@ def occlusion_heatmap(net, x, target, square_length=7):
                          "got {}.".format(square_length))
 
 #         num_classes = get_output_shape(net.layers_[-1])[1]
-    num_classes = net.coef_.shape[0]
+    if not (getattr(net, 'coef_', None) == None): num_classes = net.coef_.shape[0]
+    elif isinstance(net, tf.Graph): 
+#         print(dir(net))
+        # Assumes last trainable_variable.shape contains num_classes
+        num_classes = net.get_collection_ref('trainable_variables')[-1].get_shape().as_list()[0]
+    elif isinstance(net, tf.Session): 
+#         print(dir(net))
+        # Assumes last trainable_variable.shape contains num_classes
+        num_classes = net.graph.get_collection_ref('trainable_variables')[-1].get_shape().as_list()[0]
+    else: 
+        print 'occlusion_heatmap: unknown object type: %s' % str(type(net)) 
+        print(dir(net))
+        raise TypeError
+            
 #         print 'occlusion_heatmap: num_classes: %d' % (num_classes)
     img = x[0].copy()
     bs, col, s0, s1 = x.shape
@@ -74,7 +89,13 @@ def occlusion_heatmap(net, x, target, square_length=7):
             x_pad[:, i:i + square_length, j:j + square_length] = 0.
             x_occluded[j] = x_pad[:, pad:-pad, pad:-pad]
 #             y_proba = net.predict_proba(x_occluded)
-        y_proba = net.predict_proba(np.reshape(x_occluded, (s1, s0 * s1)))            
+#         print 'occlusion_heatmap: x_occluded.shape: %s' % (str(x_occluded.shape))
+        if not isinstance(net, tf.Session):
+            y_proba = net.predict_proba(np.reshape(x_occluded, (s1, s0 * s1)))
+        else:                
+            y_proba = net.run(tfwYOccPby, feed_dict = {tfwXOcc: np.reshape(x_occluded, (s1, s0 * s1))})
+#         print 'occlusion_heatmap: y_proba.shape: %s' % (str(y_proba.shape))            
+#             sess.run(accuracy, feed_dict={x: test_dataset.images, y_: test_dataset.labels})            
         probs[i] = y_proba.reshape(s1, num_classes)
 
     # from predicted probabilities, pick only those of target class
@@ -91,6 +112,7 @@ def _plot_heat_map(net, X, figsize, get_heat_image):
                          "shape (b, c, x, y), instead got {}".format(X.shape))
 
     num_images = X.shape[0]
+#     print "_plot_heat_map: figsize: %s" % str(figsize)
     if figsize[1] is None:
         figsize = (figsize[0], num_images * figsize[0] / 3)
     figs, axes = plt.subplots(num_images, 3, figsize=figsize)
@@ -119,7 +141,8 @@ def _plot_heat_map(net, X, figsize, get_heat_image):
         ax[2].set_title('super-imposed')
     return plt
             
-def plot_occlusion(net, X, target, square_length=7, figsize=(9, None)):
+def plot_occlusion(net, X, target, square_length=7, figsize=(9, None), 
+                    tfwXOcc = None, tfwYOccPby = None):
     """Plot which parts of an image are particularly import for the
     net to classify the image correctly.
     See paper: Zeiler, Fergus 2013
@@ -147,10 +170,94 @@ def plot_occlusion(net, X, target, square_length=7, figsize=(9, None)):
     """
     return _plot_heat_map(
         net, X, figsize, lambda net, X, n: occlusion_heatmap(
-            net, X, target[n], square_length))
+            net, X, target[n], square_length, tfwXOcc, tfwYOccPby))
     
-def mydisplayImagePredictions(mdl, lclObsIdn, lclObsFtr, lclObsRsp, lclObsRspPredProba, 
-                              lclRspClass, lclRspClassDesc):
+# https://github.com/Elucidation/tensorflow_chessbot/blob/master/helper_functions.py
+# def display_weight(a, fmt='jpeg', rng=[0,1]):
+def display_weight(X, a, fmt='jpeg', rng=[0,1]):
+    """Display an array as a color picture."""
+
+    import cStringIO
+    from IPython.display import Image, display  
+    import numpy as np
+    import PIL  
+
+    a = (a - rng[0])/float(rng[1] - rng[0]) # normalized float value
+    a = np.uint8(np.clip(a*255, 0, 255))
+    f = cStringIO.StringIO()
+
+    v = np.asarray(a, dtype=np.uint8)
+
+    # blue is high intensity, red is low
+    # Negative
+    r = 255-v.copy()
+    r[r<127] = 0
+    r[r>=127] = 255
+#     print 'display_weight: # of pixels with r == 255: %d' % np.sum(r == 255)
+
+    # None
+    g = np.zeros_like(v)
+
+    # Positive
+    b = v.copy()
+    b[b<127] = 0
+    b[b>=127] = 255
+#     print 'display_weight: # of pixels with b == 255: %d' % np.sum(b == 255)    
+
+    #np.clip((v-127)/2,0,127)*2
+
+    #-1 to 1
+    intensity = np.abs(2.*a-1)
+
+    rgb = np.uint8(np.dstack([r,g,b]*intensity))
+#     print 'display_weight: rgb.shape: %s' % str(rgb.shape)
+
+    PIL.Image.fromarray(rgb).save(f, fmt)
+    display(Image(data=f.getvalue(), width=100))
+  
+    import matplotlib.pyplot as plt
+    
+#     if (X.ndim != 4):
+#         raise ValueError("This function requires the input data to be of "
+#                          "shape (b, c, x, y), instead got {}".format(X.shape))
+
+    num_images = 1; figsize = (9, None)
+    if figsize[1] is None:
+        figsize = (figsize[0], num_images * figsize[0] / 3)
+    figs, axes = plt.subplots(num_images, 3, figsize=figsize)
+
+    for ax in axes.flatten():
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.axis('off')
+
+#         print '_plot_heat_map: X.shape: %s' % str(X.shape)
+#         print '_plot_heat_map: range(num_images):'; print range(num_images)
+    for n in range(num_images):
+#             print '_plot_heat_map:  n: %d' % (n)
+#             print '_plot_heat_map:  X:'; print X[n:n + 1, :, :, :]
+#         heat_img = get_heat_image(net, X[n:n + 1, :, :, :], n)
+
+        ax = axes if num_images == 1 else axes[n]
+#         img = X[n, :, :, :].mean(0)
+#         print 'display_weight: X[n].shape: %s' % str(X[n].shape)
+        img = X[n].reshape((X[n].shape[1], X[n].shape[2]))
+#         print 'display_weight: img.shape: %s' % str(img.shape)
+        heat_img = rgb
+        ax[0].imshow(-img, interpolation='nearest', cmap='gray')
+        ax[0].set_title('image')
+        ax[1].imshow(-heat_img, interpolation='nearest')
+        ax[1].set_title('critical parts')
+        ax[2].imshow(-img, interpolation='nearest', cmap='gray')
+        ax[2].imshow(-heat_img, interpolation='nearest',
+                     alpha=0.6)
+        ax[2].set_title('super-imposed')
+        
+    return plt
+                                          
+def mydisplayImagePredictions(mdl, W, lclObsIdn, lclObsFtr, lclObsRsp, lclObsRspPredProba, 
+                              lclRspClass, lclRspClassDesc, imgVisualFn = None, 
+                              tfwXOcc = None, tfwYOccPby = None):
 
     import matplotlib.pyplot as plt                              
     import numpy as np
@@ -170,53 +277,101 @@ def mydisplayImagePredictions(mdl, lclObsIdn, lclObsFtr, lclObsRsp, lclObsRspPre
                         if clsMsk[ixMsk]]
         print '\n'
 
-        maxClsProba = np.max(clsObsRspPredProba[:, clsIx])
-        maxObsRspPredProba = clsObsRspPredProba[:, clsIx] == maxClsProba
-        print 'Max Proba for cls: %s; desc: %s; proba: %0.4f; nObs: %d' % \
-            (cls, lclRspClassDesc[cls], maxClsProba, maxObsRspPredProba.sum())
-        idnIx = np.argmax(clsObsRspPredProba[:, clsIx])    
-        print '  %s:' % clsObsIdn[idnIx]
+        for typPby in ['max', 'min']:
+            typClsPby = np.max(clsObsRspPredProba[:, clsIx]) if typPby == 'max' else \
+                        np.min(clsObsRspPredProba[:, clsIx])
+            typClsYPby = clsObsRspPredProba[:, clsIx] == typClsPby
+            print '%s Pby for cls: %s; desc: %s; proba: %0.4f; nObs: %d' % \
+                (typPby, cls, lclRspClassDesc[cls], typClsPby, typClsYPby.sum())
+            idnIx = np.argmax(clsObsRspPredProba[:, clsIx])  if typPby == 'max' else \
+                    np.argmin(clsObsRspPredProba[:, clsIx])              
+            print '  %s:' % clsObsIdn[idnIx]
         
-#         imgFilePth = os.getcwd() + '/data/' + glbDataFile['newFoldersPth'] + '/' + \
-#                         clsObsIdn[np.argmax(clsObsRspPredProba[:, clsIx])]
-#         print '  %s:' % imgFilePth
-#         jpgfile = Image(imgFilePth, format = 'jpg', 
-#                             width = glbImg['size'] * 4, height = glbImg['size'] * 4)
-#         display(jpgfile)
+    #         imgFilePth = os.getcwd() + '/data/' + glbDataFile['newFoldersPth'] + '/' + \
+    #                         clsObsIdn[np.argmax(clsObsRspPredProba[:, clsIx])]
+    #         print '  %s:' % imgFilePth
+    #         jpgfile = Image(imgFilePth, format = 'jpg', 
+    #                             width = glbImg['size'] * 4, height = glbImg['size'] * 4)
+    #         display(jpgfile)
 
-        plot_occlusion(mdl, np.reshape(lclObsFtr[idnIx], 
-            (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
-                       lclObsRsp[idnIx:(idnIx + 1)])
-        plt.show()         
-        print '  Proba:'; 
-        print np.array_str(clsObsRspPredProba[np.argmax(clsObsRspPredProba[:, clsIx]), :],
-                           precision=4, suppress_small=True)
+    #         assert imgVisualFn == display_weight, 'imgVisualFn not recognized as display_weight'
+#             if (imgVisualFn == plot_occlusion):
+#                 imgVisualFn(mdl, np.reshape(lclObsFtr[idnIx], 
+#                     (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
+#                                lclObsRsp[idnIx:(idnIx + 1)], 
+#                                tfwXOcc = tfwXOcc, tfwYOccPby = tfwYOccPby)
+#             elif (imgVisualFn == display_weight):
+#     #             print 'mydisplayImagePredictions: W.shape: %s' % str(W.shape)
+#                 imgSz = int(np.sqrt(W.shape[0]))
+#                 imgVisualFn(np.reshape(lclObsFtr[idnIx], 
+#                     (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
+#                     np.reshape(W[:, clsIx], (imgSz, imgSz)))
+#             else:
+#                 raise ValueError('unsupported imgVisualFn: %s' % imgVisualFn)
+#           
+                          
+            if (imgVisualFn in [None, plot_occlusion]):
+                print "  plot_occlusion:"                         
+                plot_occlusion(mdl, np.reshape(lclObsFtr[idnIx], 
+                        (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
+                                   lclObsRsp[idnIx:(idnIx + 1)], 
+                                   tfwXOcc = tfwXOcc, tfwYOccPby = tfwYOccPby)
+                plt.show()         
 
-        minClsProba = np.min(clsObsRspPredProba[:, clsIx])
-        minObsRspPredProba = clsObsRspPredProba[:, clsIx] == minClsProba
-        print 'Min Proba for cls: %s; desc: %s; proba: %0.4f; nObs: %d' % \
-            (cls, lclRspClassDesc[cls], minClsProba, minObsRspPredProba.sum())
-        idnIx = np.argmin(clsObsRspPredProba[:, clsIx])    
-        print '  %s:' % clsObsIdn[idnIx]
-        
-#         imgFilePth = os.getcwd() + '/data/' + glbDataFile['newFoldersPth'] + '/' + \
-#                         clsObsIdn[np.argmin(clsObsRspPredProba[:, clsIx])]
-#         print '  %s:' % imgFilePth
-#         jpgfile = Image(imgFilePth, format = 'jpg', 
-#                             width = glbImg['size'] * 4, height = glbImg['size'] * 4)
-#         display(jpgfile)
+            if (imgVisualFn in [None, display_weight]):
+                print "  display_weight:"
+                imgSz = int(np.sqrt(W.shape[0]))
+                display_weight(np.reshape(lclObsFtr[idnIx], 
+                    (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
+                    np.reshape(W[:, clsIx], (imgSz, imgSz)))                                   
+                plt.show()         
+            
+            print '  Proba:'; 
+            print np.array_str(clsObsRspPredProba[idnIx, :],
+                               precision=4, suppress_small=True)
+            if typPby == 'min':                   
+                thsObsRspPredProba = clsObsRspPredProba[idnIx, :]
+                thsObsRspPredProba[clsIx] = 0
+                print '  next best class: %s' % \
+                    (lclRspClassDesc[lclRspClass[np.argmax(thsObsRspPredProba)]])          
+                               
 
-        plot_occlusion(mdl, np.reshape(lclObsFtr[idnIx], 
-            (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
-                       lclObsRsp[idnIx:(idnIx + 1)])
-        plt.show()         
-        print '  Proba:'; 
-        print np.array_str(clsObsRspPredProba[np.argmin(clsObsRspPredProba[:, clsIx]), :],
-                           precision=4, suppress_small=True)
-        thsObsRspPredProba = clsObsRspPredProba[np.argmin(clsObsRspPredProba[:, clsIx]), :]
-        thsObsRspPredProba[clsIx] = 0
-        print '  next best class: %s' % \
-            (lclRspClassDesc[lclRspClass[np.argmax(thsObsRspPredProba)]])          
+#         minClsProba = np.min(clsObsRspPredProba[:, clsIx])
+#         minObsRspPredProba = clsObsRspPredProba[:, clsIx] == minClsProba
+#         print 'Min Proba for cls: %s; desc: %s; proba: %0.4f; nObs: %d' % \
+#             (cls, lclRspClassDesc[cls], minClsProba, minObsRspPredProba.sum())
+#         idnIx = np.argmin(clsObsRspPredProba[:, clsIx])    
+#         print '  %s:' % clsObsIdn[idnIx]
+#         
+# #         imgFilePth = os.getcwd() + '/data/' + glbDataFile['newFoldersPth'] + '/' + \
+# #                         clsObsIdn[np.argmin(clsObsRspPredProba[:, clsIx])]
+# #         print '  %s:' % imgFilePth
+# #         jpgfile = Image(imgFilePth, format = 'jpg', 
+# #                             width = glbImg['size'] * 4, height = glbImg['size'] * 4)
+# #         display(jpgfile)
+# 
+#         if (imgVisualFn == plot_occlusion):
+#             imgVisualFn(mdl, np.reshape(lclObsFtr[idnIx], 
+#                 (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
+#                            lclObsRsp[idnIx:(idnIx + 1)])
+#         elif (imgVisualFn == display_weight):
+# #             print 'mydisplayImagePredictions: W.shape: %s' % str(W.shape)
+#             imgSz = int(np.sqrt(W.shape[0]))
+#             imgVisualFn(np.reshape(lclObsFtr[idnIx], 
+#                 (1, 1, lclObsFtr.shape[1], lclObsFtr.shape[2])), 
+#                 np.reshape(W[:, clsIx], (imgSz, imgSz)))
+#         else:
+#             raise ValueError('unsupported imgVisualFn: %s' % imgVisualFn)
+#                                    
+#         plt.show()         
+#         print '  Proba:'; 
+#         print np.array_str(clsObsRspPredProba[np.argmin(clsObsRspPredProba[:, clsIx]), :],
+#                            precision=4, suppress_small=True)
+#         thsObsRspPredProba = clsObsRspPredProba[np.argmin(clsObsRspPredProba[:, clsIx]), :]
+#         thsObsRspPredProba[clsIx] = 0
+#         print '  next best class: %s' % \
+#             (lclRspClassDesc[lclRspClass[np.argmax(thsObsRspPredProba)]])   
+    return None       
           
 def myexpandGrid(dct):
     from itertools import product
@@ -225,51 +380,117 @@ def myexpandGrid(dct):
     return pd.DataFrame([row for row in product(*dct.values())], 
                        columns=dct.keys())
                        
+# To ensure Kaggle evaluation metric is same as sklearn.metrics.log_loss
+def mygetMetricLogLoss(lclYHen, lclYPby, returnTyp = 'total', verbose = False):
+
+    from collections import namedtuple
+    import numpy as np
+
+    assert lclYHen.ndim == 2, \
+        "mygetMetricLogLoss: expecting lclYHen as hot-encoded np.array with ndim = 2 vs. %d" % \
+            (lclYHen.ndim)
+            
+    spdReturnTyp = ['total', 'class', 'outlier']        
+    assert returnTyp in spdReturnTyp, "unsupported returnTyp: %s; supported: %s" % \
+        (returnTyp, spdReturnTyp)
+
+    lclY = np.argmax(lclYHen, axis = 1)
+
+    lclYIndicator = np.zeros_like(lclYPby)
+    for cls in xrange(lclYIndicator.shape[1]):
+        lclYIndicator[lclY == cls, cls] = 1
+
+    # Scale proba to sum to 1 for each row
+    tmpYPby = lclYPby
+    sclYPbyRowSum = tmpYPby.sum(axis = 1)
+    sclYPbyRowSumChk = (np.abs(sclYPbyRowSum - 1.0) > 1e-15)
+    if (sclYPbyRowSumChk.sum() > 0):
+        maxDff = np.max(np.abs(sclYPbyRowSum - 1.0))
+        if maxDff > 1e-06:
+            print 'mygetMetricLogLoss: row sums != 1 for %d (of %d) obs; max diff: %.4e' % \
+                (sclYPbyRowSumChk.sum(), sclYPbyRowSumChk.shape[0], maxDff)
+#         print sclYPbyRowSum[sclYPbyRowSumChk]
+#         print(np.vectorize("%.4e".__mod__)(sclYPbyRowSum[sclYPbyRowSumChk][:5] - 1.0))
+#         print "mygetMetricLogLoss: tmpYPby.shape: %s" % (str(tmpYPby.shape))
+#         print "mygetMetricLogLoss: sclYPbyRowSum.shape: %s" % (str(sclYPbyRowSum.shape))
+        sclYPbyRow = np.ones(tmpYPby.shape)
+        for rowIx in xrange(sclYPbyRow.shape[0]):
+            sclYPbyRow[rowIx, :] = sclYPbyRowSum[rowIx]                            
+        sclYPby = tmpYPby / sclYPbyRow
+#         print "mygetMetricLogLoss: sclYPby.shape: %s" % (str(sclYPby.shape))        
+        tmpYPby = sclYPby
+        
+    # Bound proba to limit log fn outliers
+    bndYPby = tmpYPby
+    bndYPby[bndYPby > 1-1e-15] = 1-1e-15
+    bndYPby[bndYPby < 0+1e-15] = 0+1e-15
+    nModProba = (tmpYPby != bndYPby).sum()
+    if (nModProba > 0):
+        print 'mygetMetricLogLoss: minmax of probabilities modified %d cells' % (nModProba)
+    tmpYPby = bndYPby    
+    
+    logLossObs = (lclYIndicator * np.log(tmpYPby)).sum(axis = 1)
+    logLossCls = (lclYIndicator * np.log(tmpYPby)).sum(axis = 0) / \
+                  tmpYPby.shape[0]
+#                   np.unique(lclY, return_counts = True)[1]                      
+    if verbose:
+        print 'mygetMetricLogLoss: logLossObs outlier: %.4f; ix: %d' % \
+            (-np.min(logLossObs), np.argmin(logLossObs))
+        print "mygetMetricLogLoss: logLossCls:"; print -logLossCls;
+        print "mygetMetricLogLoss: logLossClsSum: %0.4f" % (-logLossCls.sum())
+#         print "mygetMetricLogLoss: logLossClsSum: %0.4f" % (-logLossCls.sum() / tmpYPby.shape[1])        
+    logLoss = 0 - (logLossObs.sum() / tmpYPby.shape[0])
+    
+    Outlier = namedtuple('Outlier', 'ix, logLoss')
+    maxOutlier = Outlier(np.argmin(logLossObs), -np.min(logLossObs))
+    returnVal = {   
+                    'total'     : logLoss, 
+                    'class'     : -logLossCls,
+                    'outlier'   : maxOutlier
+                }
+    
+    return(returnVal.get(returnTyp, 'total'))
+                                              
 def myimportDbs(filePathName):
     from six.moves import cPickle as pickle
 
-    global glbObsFitIdn
-    global glbObsFitFtr
-    global glbObsFitRsp
-            
-    global glbObsVldIdn, glbObsVldFtr, glbObsVldRsp     
-    global glbObsNewIdn, glbObsNewFtr, glbObsNewRsp
-    global sbtNewCorDf         
+    # Tried globals outside fn, inside fn & with f; nothing works
 
     with open(filePathName, 'rb') as f:
-      print 'Importing database from %s...' % (filePathName)  
-      save = pickle.load(f)
+        print 'Importing database from %s...' % (filePathName)  
+        save = pickle.load(f)
+        
+#         global glbObsFitIdn, glbObsFitFtr, glbObsFitRsp
+#         global glbObsVldIdn, glbObsVldFtr, glbObsVldRsp     
+#         global glbObsNewIdn, glbObsNewFtr, glbObsNewRsp
+#         global sbtNewCorDf         
 
-    #   glbObsTrnIdn = save['glbObsTrnIdn']
-    #   glbObsTrnFtr = save['glbObsTrnFtr']
-    #   glbObsTrnRsp = save['glbObsTrnRsp']
+        #   glbObsTrnIdn = save['glbObsTrnIdn']
+        #   glbObsTrnFtr = save['glbObsTrnFtr']
+        #   glbObsTrnRsp = save['glbObsTrnRsp']
     
-      glbObsFitIdn = save['glbObsFitIdn']
-      glbObsFitFtr = save['glbObsFitFtr']
-      glbObsFitRsp = save['glbObsFitRsp']
+        glbObsFitIdn = save['glbObsFitIdn']
+        glbObsFitFtr = save['glbObsFitFtr']
+        glbObsFitRsp = save['glbObsFitRsp']
 
-      glbObsVldIdn = save['glbObsVldIdn']
-      glbObsVldFtr = save['glbObsVldFtr']
-      glbObsVldRsp = save['glbObsVldRsp']
+        glbObsVldIdn = save['glbObsVldIdn']
+        glbObsVldFtr = save['glbObsVldFtr']
+        glbObsVldRsp = save['glbObsVldRsp']
 
-      glbObsNewIdn = save['glbObsNewIdn']
-      glbObsNewFtr = save['glbObsNewFtr']
-      glbObsNewRsp = save['glbObsNewRsp']
+        glbObsNewIdn = save['glbObsNewIdn']
+        glbObsNewFtr = save['glbObsNewFtr']
+        glbObsNewRsp = save['glbObsNewRsp']
 
-      sbtNewCorDf = save['sbtNewCorDf']
+        sbtNewCorDf = save['sbtNewCorDf']
 
-      del save  # hint to help gc free up memory 
+    #     del save  # hint to help gc free up memory 
       
-#       print '   returning from myimportDbs'
-#       print globals().keys().index('glbObsFitIdn')
-#       print len(glbObsFitIdn)
-      
-#       return                      
-      return  glbObsFitIdn, glbObsFitFtr, glbObsFitRsp, \
-              glbObsVldIdn, glbObsVldFtr, glbObsVldRsp, \
-              glbObsNewIdn, glbObsNewFtr, glbObsNewRsp, \
-              sbtNewCorDf, \
-              None
+        return  glbObsFitIdn, glbObsFitFtr, glbObsFitRsp, \
+                glbObsVldIdn, glbObsVldFtr, glbObsVldRsp, \
+                glbObsNewIdn, glbObsNewFtr, glbObsNewRsp, \
+                sbtNewCorDf, \
+                None # Dummy Placeholder
+#     return None
 
 def myexportDf(retResultsDf, save_filepathname, save_drop_cols = None):
     import os
@@ -379,7 +600,11 @@ def mysearchParams(thsFtn, srchParamsDct = {}, curResultsDf = None, mode = 'disp
     # Set up dataframe for printing index which is useful in scanning key rows
 #     print 'mysearchParams: retResultsDf:'; print retResultsDf
     if (retResultsDf.shape[0] > 0):
-        retResultsDf = retResultsDf.set_index(srchParamsDct.keys(), drop = False)
+        missKey = list(set(srchParamsDct.keys()).difference(set(retResultsDf.columns)))
+        for key in missKey:
+            retResultsDf[key] = None
+        
+        retResultsDf = retResultsDf.set_index(['id'] + srchParamsDct.keys(), drop = False)
         if   not (sort_values == None) and not (sort_ascending == None):
     #         print '  sort_values and sort_ascending'
             retResultsDf = retResultsDf.sort_values(sort_values, ascending = sort_ascending)
@@ -392,29 +617,10 @@ def mysearchParams(thsFtn, srchParamsDct = {}, curResultsDf = None, mode = 'disp
     #                 )
 
     if not (mode == 'displayonly'):
-        print(retResultsDf[list(set(retResultsDf.columns) - set(srchParamsDct.keys()))])
+        print(retResultsDf[list(set(retResultsDf.columns) - set(['id'] + srchParamsDct.keys()))])
     
     # Save retResultsDf
-    if not (save_filepathname == None):
+    if (save_filepathname != None) and (mode != 'displayonly'):
         myexportDf(retResultsDf, save_filepathname, save_drop_cols)
                     
-    return(retResultsDf)
-    
-def mywriteSubmission(lclObsNewRspPredProba, fileName):
-    import pandas as pd
-
-    sbmObsNewDf = pd.DataFrame(lclObsNewRspPredProba)
-    sbmObsNewDf.columns = glbRspClass
-    sbmObsNewDf['img'] = glbObsNewIdn
-    sbmObsNewDf = (sbmObsNewDf
-                    .set_index(['img'], 
-                               drop = False)
-                    .sort_values('img')
-                    )
-    sbmObsNewDf = sbmObsNewDf[['img'] + glbRspClass]
-    print sbmObsNewDf.head()
-    print sbmObsNewDf.tail()
-    
-    print '\nexporting %d rows to %s...' % (sbmObsNewDf.shape[0], 
-                                         fileName)
-    sbmObsNewDf.to_csv(fileName, index = False)            
+    return(retResultsDf)                

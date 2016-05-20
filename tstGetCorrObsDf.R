@@ -96,7 +96,7 @@ mypltModelStats <- function(df, measure, dim = NULL, scaleXFn = NULL, highLightI
     return(gp)
 }
 
-mypltModelStats(subset(tstGetCorrObsDf, !(xRowsN %in% c(5, 10))), c('mean', 'median', 'duration'),
-                dim = c('chunkSize', 'yRowsN', 'xRowsN'),
-                scaleXFn = NULL,
-                highLightIx = which(tstGetCorrObsDf$bestFit == 'True'))
+# mypltModelStats(subset(tstGetCorrObsDf, !(xRowsN %in% c(5, 10))), c('mean', 'median', 'duration'),
+#                 dim = c('chunkSize', 'yRowsN', 'xRowsN'),
+#                 scaleXFn = NULL,
+#                 highLightIx = which(tstGetCorrObsDf$bestFit == 'True'))
