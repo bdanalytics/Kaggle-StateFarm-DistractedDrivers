@@ -569,14 +569,19 @@ def mysearchParams(thsFtn, srchParamsDct = {}, curResultsDf = None, mode = 'disp
         
     if (mode == 'displayonly'):
         print 'mysearchParams: will run %s with params:' % (thsFtn)
-        print runResultsDf
+        print runResultsDf.to_string(index = False)
+        print 'mysearchParams: total runs: %d' % (runResultsDf.shape[0])
     else:        
+        if runResultsDf.shape[0] > 5:
+            print "mysearchParams: number of runs: %2d; running first 5 only" % (runResultsDf.shape[0])
+            runResultsDf = runResultsDf.iloc[:5]
         for rowIx in xrange(runResultsDf.shape[0]):
             srchKwargs = kwargs.copy() 
             srchKwargs.update(runResultsDf.iloc[rowIx].to_dict())
             
             print 'mysearchParams: running %s with params:' % (thsFtn)
-            print runResultsDf.iloc[rowIx] 
+#             print runResultsDf.iloc[rowIx].to_string(index = False)
+            print runResultsDf.iloc[rowIx].to_string(index = True)             
 
             # Function expects first return value to be a pd.DataFrame                 
             thsResults = thsFtn(**srchKwargs)

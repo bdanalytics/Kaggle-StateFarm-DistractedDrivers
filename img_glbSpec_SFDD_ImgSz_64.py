@@ -60,6 +60,7 @@ glbImg = {
 
 glbObsShuffleSeed = 127
 glbTfwVarSeed = 131
+glbNPySeed = 137
 
 glbPickleFile = {
       'data' : 'data/img_D_SFDD_ImgSz_' + str(glbImg['size']) + '.pickle',
