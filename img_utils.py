@@ -173,8 +173,7 @@ def plot_occlusion(net, X, target, square_length=7, figsize=(9, None),
             net, X, target[n], square_length, tfwXOcc, tfwYOccPby))
     
 # https://github.com/Elucidation/tensorflow_chessbot/blob/master/helper_functions.py
-# def display_weight(a, fmt='jpeg', rng=[0,1]):
-def display_weight(X, a, fmt='jpeg', rng=[0,1]):
+def mydisplayArray(a, fmt='jpeg', rng=[0,1]):
     """Display an array as a color picture."""
 
     import cStringIO
@@ -182,6 +181,7 @@ def display_weight(X, a, fmt='jpeg', rng=[0,1]):
     import numpy as np
     import PIL  
 
+    print 'mydisplayArray: a.shape: %s' % str(a.shape)
     a = (a - rng[0])/float(rng[1] - rng[0]) # normalized float value
     a = np.uint8(np.clip(a*255, 0, 255))
     f = cStringIO.StringIO()
@@ -210,7 +210,51 @@ def display_weight(X, a, fmt='jpeg', rng=[0,1]):
     intensity = np.abs(2.*a-1)
 
     rgb = np.uint8(np.dstack([r,g,b]*intensity))
-#     print 'display_weight: rgb.shape: %s' % str(rgb.shape)
+    print 'mydisplayArray: rgb.shape: %s' % str(rgb.shape)
+
+    PIL.Image.fromarray(rgb).save(f, fmt)
+    display(Image(data=f.getvalue(), width=100))
+
+
+# def display_weight(a, fmt='jpeg', rng=[0,1]):
+def display_weight(X, a, fmt='jpeg', rng=[0,1]):
+    """Display an array as a color picture."""
+
+    import cStringIO
+    from IPython.display import Image, display  
+    import numpy as np
+    import PIL  
+
+    print 'display_weight: a.shape: %s' % str(a.shape)
+    a = (a - rng[0])/float(rng[1] - rng[0]) # normalized float value
+    a = np.uint8(np.clip(a*255, 0, 255))
+    f = cStringIO.StringIO()
+
+    v = np.asarray(a, dtype=np.uint8)
+
+    # blue is high intensity, red is low
+    # Negative
+    r = 255-v.copy()
+    r[r<127] = 0
+    r[r>=127] = 255
+#     print 'display_weight: # of pixels with r == 255: %d' % np.sum(r == 255)
+
+    # None
+    g = np.zeros_like(v)
+
+    # Positive
+    b = v.copy()
+    b[b<127] = 0
+    b[b>=127] = 255
+#     print 'display_weight: # of pixels with b == 255: %d' % np.sum(b == 255)    
+
+    #np.clip((v-127)/2,0,127)*2
+
+    #-1 to 1
+    intensity = np.abs(2.*a-1)
+
+    rgb = np.uint8(np.dstack([r,g,b]*intensity))
+    print 'display_weight: rgb.shape: %s' % str(rgb.shape)
 
     PIL.Image.fromarray(rgb).save(f, fmt)
     display(Image(data=f.getvalue(), width=100))
@@ -622,7 +666,10 @@ def mysearchParams(thsFtn, srchParamsDct = {}, curResultsDf = None, mode = 'disp
     #                 )
 
     if not (mode == 'displayonly'):
-        print(retResultsDf[list(set(retResultsDf.columns) - set(['id'] + srchParamsDct.keys()))])
+        prtResultsDf = retResultsDf
+        if (retResultsDf.shape[0] > 10):
+            print "mysearchParams: total rows: %5d exceeds 10; suppressing printing" % (retResultsDf.shape[0])
+        else: print(prtResultsDf[list(set(prtResultsDf.columns) - set(['id'] + srchParamsDct.keys()))])
     
     # Save retResultsDf
     if (save_filepathname != None) and (mode != 'displayonly'):
